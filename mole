@@ -1,6 +1,7 @@
 POSIXLY_CORRECT=yes
 #!/bin/bash
 
+PATH="/mnt/c/IOS"
 LIST=""
 SECRETLOG=""
 
