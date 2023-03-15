@@ -1,7 +1,6 @@
 POSIXLY_CORRECT=yes
 #!/bin/bash
 
-PATH="/mnt/c/IOS"
 LIST=""
 SECRETLOG=""
 
@@ -15,11 +14,19 @@ after=""
 workDir=""
 
 if [[ -z "$MOLE_RC" ]]; then
-  echo "Configuration error, MOLE_RC is null"
-  exit 1
-elif ! [[ -f "$MOLE_RC" ]]; then
-  echo "Configuration error, MOLE_RC is not a file"
+  echo "Configuration error, MOLE_RC is null PATH is $PATH"
+  #exit 1;
 fi
+
+if [ ! -d "$(dirname "$MOLE_RC")" ]; then
+  mkdir -p "$(dirname "$MOLE_RC")"
+fi
+
+if [ ! -e "$MOLE_RC" ]; then 
+  touch "$MOLE_RC.yml"
+fi
+
+
 
 usage() {
   echo "Usage: $0 [-h] [-g GROUP] [-m] [-b DATE] [-a DATE] [FILTERS] [DIRECTORY]" 1>&2
@@ -65,10 +72,21 @@ if [[ $# -gt 0 ]]; then
   fi
 fi
 
-echo "FILE: $FILE"
-echo "Directory: $DIRECTORY"
-echo "a- $after"
-echo "b- $before"
-echo "Secret log: $SECRETLOG"
-echo "LIST: $LIST"
+if [[ -e  "$FILE" ]]; then 
+  echo "FILE EXISTS"
+  if [[ -e "$EDITOR" ]]; then 
+    $EDITOR "$MOLE_RC.yml"
+  elif [[ -e "$VISUAL" ]]; then 
+    $VISUAL "$MOLE_RC.yml"
+  else 
+    vi "$MOLE_RC.yml"
+  fi
+fi
+
+# echo "FILE: $FILE"
+# echo "Directory: $DIRECTORY"
+# echo "a- $after"
+# echo "b- $before"
+# echo "Secret log: $SECRETLOG"
+# echo "LIST: $LIST"
 
