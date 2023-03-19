@@ -152,18 +152,16 @@ if [[ -e  "$FILE" ]]; then
    else
     while read line
     do
-    # Extract the second column of the current line
-    datestr=$(echo $line | awk '{print $2}')
 
-    # Extract the first date in the comma-separated list of dates in the second column
-    current_date=$(echo $datestr | awk -F',' '{print $1}')
+      datestr=$(echo $line | awk '{print $2}')
 
-    # Compare the current date with the most recent date found so far
-    if [[ "$most_recent_date" == "" || "$current_date" > "$most_recent_date" ]]; then
-        most_recent_date="$current_date"
-        FILE=$(echo $line | awk '{print $1}')
-    fi
-    
+      current_date=$(echo $datestr | awk -F',' '{print $1}')
+
+      if [[ "$most_recent_date" == "" || "$current_date" > "$most_recent_date" ]]; then
+          most_recent_date="$current_date"
+          FILE=$(echo $line | awk '{print $1}')
+      fi
+
     done < "$MOLE_RC"
 
 
@@ -177,6 +175,22 @@ if [[ -e  "$FILE" ]]; then
     fi
   fi
 fi
+
+while IFS= read -r line; do
+
+    file_path=$(echo "$line" | awk '{print $1}')
+
+    # Check if the file path starts with the search directory
+    if [[ "$file_path" == "$search_dir/"* && "$file_path" != "$search_dir/*/*" ]]; then
+        # Get the file name from the file path
+        file_name=$(basename "$file_path")
+
+        groups=$(echo "$line" | awk '{print $NF}')
+
+        # Print the file name and group(s)
+        echo "$file_name $groups"
+    fi
+done < "$config_file"
 
 
 # FILE=$(awk -v dateA="$after" -v dateB="$before" -v directory="$DIRECTORY" '
