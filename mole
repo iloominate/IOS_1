@@ -43,7 +43,7 @@ function searchAndModifyConfig ()
     BEGIN {}
     $1 == FILE {  
       $3 += 1
-      $2 = DATE
+      $2 = DATE "," $2
       if ($4 !~ GROUP) {
         if ($4 == "-") {
           $4 = GROUP
@@ -150,20 +150,24 @@ if [[ -e  "$FILE" ]]; then
    if [[ $mode == true ]]; then 
     echo "$mode"
    else
-    echo "I'm in else DIRECTORY"
-    FILE=$(awk -v dateA="$after" -v dateB="$before" -v directory="$DIRECTORY" '
-    BEGIN {
-      mostRecentDate = dateA
-    }
-    $2 >= mostRecentDate {
-      mostRecentDate = $2
-      FILE = $1
-    }
-    END {
-      print FILE
-    }
-    ' "$MOLE_RC")
-    echo "$FILE"
+    while read line
+    do
+    # Extract the second column of the current line
+    datestr=$(echo $line | awk '{print $2}')
+
+    # Extract the first date in the comma-separated list of dates in the second column
+    current_date=$(echo $datestr | awk -F',' '{print $1}')
+
+    # Compare the current date with the most recent date found so far
+    if [[ "$most_recent_date" == "" || "$current_date" > "$most_recent_date" ]]; then
+        most_recent_date="$current_date"
+        FILE=$(echo $line | awk '{print $1}')
+    fi
+    
+    done < "$MOLE_RC"
+
+
+
     if  [ -f "$FILE" ]; then
       openFile
       searchAndModifyConfig
@@ -174,12 +178,19 @@ if [[ -e  "$FILE" ]]; then
   fi
 fi
 
-# FNR>1 && dateA<=$2 && dateB>=$2 {
-    #   if ($2 >= mostRecentDate) {
-    #     mostRecentDate=$2
-    #     FILE=$1
-    #   }
-    #}
+
+# FILE=$(awk -v dateA="$after" -v dateB="$before" -v directory="$DIRECTORY" '
+#     BEGIN {
+#       mostRecentDate = dateA
+#     }
+#     $2 >= mostRecentDate {
+#       mostRecentDate = $2
+#       FILE = $1
+#     }
+#     END {
+#       print FILE
+#     }
+#     ' "$MOLE_RC")
 
 
 # echo "FILE: $FILE"
