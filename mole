@@ -5,17 +5,80 @@ LIST=""
 SECRETLOG=""
 
 DIRECTORY="$PWD"
+TIME=$(date +%Y-%m-%d_%H:%M:%S)
 FILE=""
 
+usage=""
 group=""
 mode=""
 before=""
 after=""
-workDir=""
+search=""
+
+DEAFAULT_AFTER_DATE="1970-00-01_00:00:00"
+DEAFAULT_BEFORE_DATE="9999-12-28_00:00:00"
+
+function openFile ()
+{
+  echo "I'M IN OPENFILE FUNC"
+  if [[ -e "$EDITOR" ]]; then 
+    $EDITOR "$FILE"
+  elif [[ -e "$VISUAL" ]]; then 
+    $VISUAL "$FILE"
+  else
+    vi "$FILE"
+  fi
+}
+
+function searchAndModifyConfig () 
+{
+  echo "I'm un searchAndModifyConfig function"
+  FILE=$(realpath "$FILE")
+  search=$(awk -v file="$FILE" '$1 == file {print "not zero"}' "$MOLE_RC")
+
+  if [[ -z "$search" ]]; then 
+    echo "$FILE $TIME 1 $group" >> $MOLE_RC
+  else
+    awk -i inplace -v GROUP="$group" -v FILE="$FILE" -v DATE="$TIME" '
+    BEGIN {}
+    $1 == FILE {  
+      $3 += 1
+      $2 = DATE
+      if ($4 !~ GROUP) {
+        if ($4 == "-") {
+          $4 = GROUP
+        } else if (GROUP != "-") {
+          $4 = $4 "," GROUP
+        }
+      }
+    }
+    {print}
+    END {}
+    ' $MOLE_RC
+  fi
+}
+
+
+function dateToSeconds () 
+{
+  # Parse the date string into its components
+  year=$(echo "$1" | cut -d'-' -f1)
+  month=$(echo "$1" | cut -d'-' -f2)
+  day=$(echo "$1" | cut -d'-' -f3 | cut -d'_' -f1)
+  hour=$(echo "$1" | cut -d'-' -f3 | cut -d'_' -f2)
+  minute=$(echo "$1" | cut -d'-' -f4)
+  second=$(echo "$1" | cut -d'-' -f5)
+
+  # Convert the components to seconds since the epoch (Jan 1 1970 00:00:00 UTC)
+  seconds=$(date -d "${year}-${month}-${day} ${hour}:${minute}:${second}" +%s)
+
+  # Return the number of seconds
+  echo "$seconds"
+}
 
 if [[ -z "$MOLE_RC" ]]; then
-  echo "Configuration error, MOLE_RC is null PATH is $PATH"
-  #exit 1;
+  echo "Configuration error, MOLE_RC is null"
+  exit 1;
 fi
 
 if [ ! -d "$(dirname "$MOLE_RC")" ]; then
@@ -23,7 +86,7 @@ if [ ! -d "$(dirname "$MOLE_RC")" ]; then
 fi
 
 if [ ! -e "$MOLE_RC" ]; then 
-  touch "$MOLE_RC.yml"
+  touch "$MOLE_RC"
 fi
 
 
@@ -40,13 +103,6 @@ elif [[ $1 == "secret-log" ]]; then
   shift 1
 fi
 
-usage=""
-group=""
-mode=""
-before=""
-after=""
-workDir=""
-
 while getopts ":g:b:a:mh" opt; do
   case ${opt} in
     h ) usage;;
@@ -62,26 +118,69 @@ while getopts ":g:b:a:mh" opt; do
 done
 shift $((OPTIND -1))
 
+if [[ -z $group ]]; then 
+  group="-"
+fi
+
+if [[ -z $before ]]; then
+  before="$DEAFAULT_BEFORE_DATE"
+fi
+
+if [[ -z $after ]]; then 
+  after="$DEAFAULT_AFTER_DATE"
+fi
+
+# Set DIRECTORY and FILE value 
 if [[ $# -gt 0 ]]; then
   if [ -d "$1" ]; then
     DIRECTORY="$1"
   elif [ -f "$1" ]; then
     FILE="$1"
   else 
-    echo "Invalid argument: $1" 1>&2
+    echo "Invalid argument or file is not in this directory: $1" 1>&2
   fi
 fi
 
+
+# Check if work with DIRECTORY or with FILE 
 if [[ -e  "$FILE" ]]; then 
-  echo "FILE EXISTS"
-  if [[ -e "$EDITOR" ]]; then 
-    $EDITOR "$MOLE_RC.yml"
-  elif [[ -e "$VISUAL" ]]; then 
-    $VISUAL "$MOLE_RC.yml"
-  else 
-    vi "$MOLE_RC.yml"
+  openFile
+  searchAndModifyConfig
+  else
+   if [[ $mode == true ]]; then 
+    echo "$mode"
+   else
+    echo "I'm in else DIRECTORY"
+    FILE=$(awk -v dateA="$after" -v dateB="$before" -v directory="$DIRECTORY" '
+    BEGIN {
+      mostRecentDate = dateA
+    }
+    $2 >= mostRecentDate {
+      mostRecentDate = $2
+      FILE = $1
+    }
+    END {
+      print FILE
+    }
+    ' "$MOLE_RC")
+    echo "$FILE"
+    if  [ -f "$FILE" ]; then
+      openFile
+      searchAndModifyConfig
+    else
+      echo "Not suitable file in this direcory "
+      exit
+    fi
   fi
 fi
+
+# FNR>1 && dateA<=$2 && dateB>=$2 {
+    #   if ($2 >= mostRecentDate) {
+    #     mostRecentDate=$2
+    #     FILE=$1
+    #   }
+    #}
+
 
 # echo "FILE: $FILE"
 # echo "Directory: $DIRECTORY"
@@ -89,4 +188,3 @@ fi
 # echo "b- $before"
 # echo "Secret log: $SECRETLOG"
 # echo "LIST: $LIST"
-
