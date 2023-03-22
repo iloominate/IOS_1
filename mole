@@ -20,7 +20,6 @@ DEAFAULT_BEFORE_DATE="9999-12-28_00:00:00"
 
 function openFile ()
 {
-  echo "I'M IN OPENFILE FUNC"
   if [[ -e "$EDITOR" ]]; then 
     $EDITOR "$FILE"
   elif [[ -e "$VISUAL" ]]; then 
@@ -32,7 +31,6 @@ function openFile ()
 
 function searchAndModifyConfig () 
 {
-  echo "I'm un searchAndModifyConfig function"
   FILE=$(realpath "$FILE")
   search=$(awk -v file="$FILE" '$1 == file {print "not zero"}' "$MOLE_RC")
 
@@ -76,9 +74,98 @@ function dateToSeconds ()
   echo "$seconds"
 }
 
+function listPrint ()
+{
+  while IFS= read -r line; do
+    filePath=$(echo "$line" | awk '{print $1}') 
+    local datestr=$(echo $line | awk '{print $2}')
+
+    local currentMostRecentDate=$(echo $date | awk F',' '{print $1}')
+    local currentLatestDate=$(echo $date | awk F',' '{print $NF}')
+
+    if [[ $(find "$DIRECTORY" -maxdepth 1 -type f -name "$(basename "$filePath")") && "$filePath" != "$DIRECTORY"/*/* ]]; then
+
+      if [[ "$currentMostRecentDate" > "$after" && "$currentLatestDate" < "$before" ]]; then
+        file_name=$(basename "$filePath")
+
+        groups=$(echo "$line" | awk '{print $NF}')
+
+        echo "$file_name $groups"
+      fi
+      
+    fi
+  done < "$MOLE_RC"
+}
+
+function directoryPrint ()
+{
+  echo "I'm in directoryPrint function"
+  while read line
+    do
+      local filePath=$(echo $line | awk '{print $1}')
+      local datestr=$(echo $line | awk '{print $2}')
+
+      local currentMostRecentDate=$(echo $datestr | awk -F',' '{print $1}')
+      local currentLatestDate=$(echo $datestr | awk -F',' '{print $NF}')
+
+      if [[ $(find "$DIRECTORY" -maxdepth 1 -type f -name "$(basename "$filePath")") && "$filePath" != "$DIRECTORY"/*/* ]]; then
+        if [[ "$currentMostRecentDate" > "$after" && "$currentLatestDate" < "$before" ]]; then 
+          if [[ "$mostRecentDate" == "" || "$currentMostRecentDate" > "$mostRecentDate" ]]; then
+            mostRecentDate="$currentMostRecentDate"
+            FILE=$(echo $line | awk '{print $1}')
+          fi
+        fi
+      fi 
+
+  done < "$MOLE_RC"
+
+  if  [ -f "$FILE" ]; then
+    openFile
+    searchAndModifyConfig
+  else
+    echo "No suitable file in this direcory "
+    exit 1
+  fi
+}
+
+function directoryPrintMode ()
+{
+  echo "I'm in directoryPrintMode function"
+  maxCount=0
+  while read line
+    do
+
+      local filePath=$(echo $line | awk '{print $1}')
+      local datestr=$(echo $line | awk '{print $2}')
+      local currentCount=$(echo $line | awk '{print $3}')
+
+      local currentMostRecentDate=$(echo $datestr | awk -F',' '{print $1}')
+      local currentLatestDate=$(echo $datestr | awk -F',' '{print $NF}')
+
+      if [[ $(find "$DIRECTORY" -maxdepth 1 -type f -name "$(basename "$filePath")") && "$filePath" != "$DIRECTORY"/*/* ]]; then
+        if [[ "$currentMostRecentDate" > "$after" && "$currentLatestDate" < "$before" ]]; then
+          echo "$maxCount vs $currentCount"
+          if [[ "$maxCount" < "$currentCount" ]]; then
+            maxCount=$currentCount
+            echo "after change: max count = $maxCount current count = $currentCount"
+            FILE=$(echo $line | awk '{print $1}')
+          fi
+        fi 
+      fi
+  done < "$MOLE_RC"
+
+  if  [ -f "$FILE" ]; then
+    openFile
+    searchAndModifyConfig
+  else
+    echo "No suitable file in this direcory "
+    exit 1
+  fi
+}
+
 if [[ -z "$MOLE_RC" ]]; then
   echo "Configuration error, MOLE_RC is null"
-  exit 1;
+  exit 1
 fi
 
 if [ ! -d "$(dirname "$MOLE_RC")" ]; then
@@ -136,6 +223,13 @@ if [[ $# -gt 0 ]]; then
     DIRECTORY="$1"
   elif [ -f "$1" ]; then
     FILE="$1"
+    if [ -d "$2" ] && [ -n "$2" ]; then 
+      DIRECTORY="$2"
+    elif [ "$2" == "" ]; then 
+      DIRECTORY="$PWD"
+    else 
+      echo "Invalid argument or file is not in this directory: 1 $2 1" 1>&2
+    fi
   else 
     echo "Invalid argument or file is not in this directory: $1" 1>&2
   fi
@@ -146,65 +240,15 @@ fi
 if [[ -e  "$FILE" ]]; then 
   openFile
   searchAndModifyConfig
+elif [[ "$LIST" == true ]]; then 
+  listPrint
+else
+  if [[ $mode == true ]]; then 
+    directoryPrintMode
   else
-   if [[ $mode == true ]]; then 
-    echo "$mode"
-   else
-    while read line
-    do
-
-      datestr=$(echo $line | awk '{print $2}')
-
-      current_date=$(echo $datestr | awk -F',' '{print $1}')
-
-      if [[ "$most_recent_date" == "" || "$current_date" > "$most_recent_date" ]]; then
-          most_recent_date="$current_date"
-          FILE=$(echo $line | awk '{print $1}')
-      fi
-
-    done < "$MOLE_RC"
-
-
-
-    if  [ -f "$FILE" ]; then
-      openFile
-      searchAndModifyConfig
-    else
-      echo "Not suitable file in this direcory "
-      exit
-    fi
+    directoryPrint
   fi
 fi
-
-while IFS= read -r line; do
-
-    file_path=$(echo "$line" | awk '{print $1}')
-
-    # Check if the file path starts with the search directory
-    if [[ "$file_path" == "$search_dir/"* && "$file_path" != "$search_dir/*/*" ]]; then
-        # Get the file name from the file path
-        file_name=$(basename "$file_path")
-
-        groups=$(echo "$line" | awk '{print $NF}')
-
-        # Print the file name and group(s)
-        echo "$file_name $groups"
-    fi
-done < "$config_file"
-
-
-# FILE=$(awk -v dateA="$after" -v dateB="$before" -v directory="$DIRECTORY" '
-#     BEGIN {
-#       mostRecentDate = dateA
-#     }
-#     $2 >= mostRecentDate {
-#       mostRecentDate = $2
-#       FILE = $1
-#     }
-#     END {
-#       print FILE
-#     }
-#     ' "$MOLE_RC")
 
 
 # echo "FILE: $FILE"
