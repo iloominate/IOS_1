@@ -1,5 +1,12 @@
+#!/bin/dash
+
 POSIXLY_CORRECT=yes
-#!/bin/bash
+if command -v realpath >/dev/null 2>&1 ; then
+  nothing_var=""
+else
+  echo "NO realpath error"
+  exit 1
+fi
 
 LIST=""
 SECRETLOG=""
@@ -18,99 +25,196 @@ search=""
 DEAFAULT_AFTER_DATE="1970-00-01_00:00:00"
 DEAFAULT_BEFORE_DATE="9999-12-28_00:00:00"
 
-function openFile ()
-{
-  if [[ -e "$EDITOR" ]]; then 
+openFile() {
+  if [ -e "$EDITOR" ]; then 
     $EDITOR "$FILE"
-  elif [[ -e "$VISUAL" ]]; then 
+  elif [ -e "$VISUAL" ]; then 
     $VISUAL "$FILE"
   else
     vi "$FILE"
   fi
 }
 
-function searchAndModifyConfig () 
+searchAndModifyConfig () 
 {
   FILE=$(realpath "$FILE")
   search=$(awk -v file="$FILE" '$1 == file {print "not zero"}' "$MOLE_RC")
 
-  if [[ -z "$search" ]]; then 
+  if [ -z "$search" ]; then 
     echo "$FILE $TIME 1 $group" >> $MOLE_RC
+
   else
-    awk -i inplace -v GROUP="$group" -v FILE="$FILE" -v DATE="$TIME" '
-    BEGIN {}
+    REPLACE_DATE=""
+    REPLACE_COUNT=""
+    REPLACE_GROUP=""
+
+    REPLACE_DATE=$(awk -v GROUP="$group" -v FILE="$FILE" -v DATE="$TIME" '
     $1 == FILE {  
-      $3 += 1
-      $2 = DATE "," $2
-      if ($4 !~ GROUP) {
-        if ($4 == "-") {
-          $4 = GROUP
-        } else if (GROUP != "-") {
-          $4 = $4 "," GROUP
-        }
-      }
+      DATE = $2 "," DATE
+      print DATE
     }
-    {print}
-    END {}
-    ' $MOLE_RC
+    ' $MOLE_RC)
+
+    REPLACE_COUNT=$(awk -v GROUP="$group" -v FILE="$FILE" -v DATE="$TIME" '
+    $1 == FILE {  
+      COUNT = $3 + 1
+      print COUNT
+    }
+    ' $MOLE_RC)
+
+    if [ $group = "" ]; then 
+      REPLACE_GROUP="-"
+    fi
+
+    REPLACE_GROUP=$(awk -v GROUP="$group" -v FILE="$FILE" -v DATE="$TIME" '
+    $1 == FILE {  
+      if ($4 !~ GROUP) {
+        if ($4 == "-"){
+          GROUP=GROUP
+        }
+        else if (GROUP == "-"){
+          GROUP=$4
+        }
+        else{
+          GROUP= $4 "," GROUP
+        }
+      } else 
+      {
+        GROUP=$4
+      }
+      print GROUP
+    }
+    ' $MOLE_RC)
+
+
+    sed -i "/^$(echo "$FILE" | sed 's/\//\\\//g')/s/\(\S\+\s\+\)\S\+/\1$REPLACE_DATE/" $MOLE_RC
+    sed -i "/^$(echo "$FILE" | sed 's/\//\\\//g')/s/\(\S\+\s\+\)\(\S\+\s\+\)\(\S\+\)/\1\2$REPLACE_COUNT/" $MOLE_RC
+    sed -i "/^$(echo "$FILE" | sed 's/\//\\\//g')/s/\(\S\+\s\+\S\+\s\+\S\+\s\+\)\(\S\+\)/\1$REPLACE_GROUP/" $MOLE_RC
+
   fi
 }
 
-
-function dateToSeconds () 
+secretLog ()
 {
-  # Parse the date string into its components
-  year=$(echo "$1" | cut -d'-' -f1)
-  month=$(echo "$1" | cut -d'-' -f2)
-  day=$(echo "$1" | cut -d'-' -f3 | cut -d'_' -f1)
-  hour=$(echo "$1" | cut -d'-' -f3 | cut -d'_' -f2)
-  minute=$(echo "$1" | cut -d'-' -f4)
-  second=$(echo "$1" | cut -d'-' -f5)
+  if [ ! -d "/home/$USER/.mole/" ]; then
+    mkdir -p "/home/$USER/.mole/"
+  fi
 
-  # Convert the components to seconds since the epoch (Jan 1 1970 00:00:00 UTC)
-  seconds=$(date -d "${year}-${month}-${day} ${hour}:${minute}:${second}" +%s)
+  dateForLog=$(date +%Y-%m-%d_%H-%M-%S)
+  
+  directoryForLog=$@
 
-  # Return the number of seconds
-  echo "$seconds"
-}
-
-function listPrint ()
-{
   while IFS= read -r line; do
     filePath=$(echo "$line" | awk '{print $1}') 
-    local datestr=$(echo $line | awk '{print $2}')
+    fileBaseName=$(basename $filePath)
+    currentFileLength=${#fileBaseName}
+    datestr=$(echo $line | awk '{print $2}')
 
-    local currentMostRecentDate=$(echo $date | awk F',' '{print $1}')
-    local currentLatestDate=$(echo $date | awk F',' '{print $NF}')
+    outputDate=""
 
-    if [[ $(find "$DIRECTORY" -maxdepth 1 -type f -name "$(basename "$filePath")") && "$filePath" != "$DIRECTORY"/*/* ]]; then
+    if [ $# -gt 0 ]; then 
+      for dir in "$@"
+      do
+        if [ ! -d "$dir" ]; then
+          echo "Wrong secret-log arg"
+          exit 1
+        fi
 
-      if [[ "$currentMostRecentDate" > "$after" && "$currentLatestDate" < "$before" ]]; then
-        file_name=$(basename "$filePath")
+        if [ -n $(find "$dir" -maxdepth 1 -type f -name "$(basename "$filePath")") ]  &&  [ "$filePath" != "$dir"/*/* ]; then
+          outputDate=$(echo $datestr | awk -F',' -v after=$after -v before=$before '{
+            check=0 
+            for (i=1; i <= NF; i++) {
+              if ($i > after &&  $i < before) {
+                if (check) {printf ";"}
+                printf $i
+                check=1
+              } 
+            }
+          }')
 
-        groups=$(echo "$line" | awk '{print $NF}')
+          if [ "$outputDate" != "" ]; then 
+            echo "$fileBaseName;$outputDate" | sed 's/:/-/g' | bzip2 -c >>/home/"$USER"/.mole/log_"$USER"_"$dateForLog".bz2
+          fi
+        fi
+      done
+    else
+      outputDate=$(echo $datestr | awk -F',' -v after=$after -v before=$before '{
+        check=0 
+        for (i=1; i <= NF; i++) {
+          if ($i > after &&  $i < before) {
+            if (check) {printf ";"}
+            printf $i
+            check=1
+          } 
+        }
+      }')
 
-        echo "$file_name $groups"
+      if [ "$outputDate" != "" ]; then 
+        echo "$fileBaseName;$outputDate" | sed 's/:/-/g' | bzip2 -c >>/home/"$USER"/.mole/log_"$USER"_"$dateForLog".bz2
       fi
-      
+    fi
+  done < "$MOLE_RC" | sort
+
+} 
+
+listPrint ()
+{
+  maxFileLength=0
+
+  while IFS= read -r line; do
+    filePath=$(echo "$line" | awk '{print $1}') 
+    fileBaseName=$(basename $filePath)
+    currentFileLength=${#fileBaseName}
+
+    datestr=$(echo $line | awk '{print $2}')
+
+    currentMostRecentDate=$(echo $datestr | awk -F',' '{print $NF}')
+    currentLatestDate=$(echo $datestr | awk -F',' '{print $1}')
+
+    if [ -e "$DIRECTORY/$(basename "$filePath")" -a "$filePath" != "$DIRECTORY"/*/* ]; then
+      if [ "$currentMostRecentDate" '>' "$after" -a "$currentLatestDate" '<' "$before" ]; then
+        if [ $currentFileLength -gt $maxFileLength ]; then 
+          maxFileLength=$currentFileLength
+        fi       
+      fi  
     fi
   done < "$MOLE_RC"
+
+
+  while IFS= read -r line; do
+    filePath=$(echo "$line" | awk '{print $1}') 
+    fileBaseName=$(basename $filePath)
+    currentFileLength=${#fileBaseName}
+
+
+    datestr=$(echo $line | awk '{print $2}')
+
+    currentMostRecentDate=$(echo $datestr | awk -F',' '{print $NF}')
+    currentLatestDate=$(echo $datestr | awk -F',' '{print $1}')
+
+    if [ -e "$DIRECTORY/$(basename "$filePath")" -a "$filePath" != "$DIRECTORY"/*/* ]; then
+      if [ "$currentMostRecentDate" '>' "$after" -a "$currentLatestDate" '<' "$before" ]; then
+        fileName=$(basename "$filePath")
+        groups=$(echo "$line" | awk '{print $NF}')
+        awk -v file_name="$fileName" -v groups="$groups" -v max_length="$maxFileLength" 'BEGIN { printf("%-*s %s\n", max_length, file_name, groups); }'
+      fi      
+    fi
+  done < "$MOLE_RC" | sort
 }
 
-function directoryPrint ()
+directoryPrint ()
 {
-  echo "I'm in directoryPrint function"
   while read line
     do
-      local filePath=$(echo $line | awk '{print $1}')
-      local datestr=$(echo $line | awk '{print $2}')
+      filePath=$(echo $line | awk '{print $1}')
+      datestr=$(echo $line | awk '{print $2}')
 
-      local currentMostRecentDate=$(echo $datestr | awk -F',' '{print $1}')
-      local currentLatestDate=$(echo $datestr | awk -F',' '{print $NF}')
+      currentMostRecentDate=$(echo $datestr | awk -F',' '{print $NF}')
+      currentLatestDate=$(echo $datestr | awk -F',' '{print $1}')
 
-      if [[ $(find "$DIRECTORY" -maxdepth 1 -type f -name "$(basename "$filePath")") && "$filePath" != "$DIRECTORY"/*/* ]]; then
-        if [[ "$currentMostRecentDate" > "$after" && "$currentLatestDate" < "$before" ]]; then 
-          if [[ "$mostRecentDate" == "" || "$currentMostRecentDate" > "$mostRecentDate" ]]; then
+      if [ -e "$DIRECTORY/$(basename "$filePath")" -a "$filePath" != "$DIRECTORY"/*/* ]; then
+        if [ "$currentMostRecentDate" '>' "$after" -a "$currentLatestDate" '<' "$before" ]; then 
+          if [ "$mostRecentDate" = "" -o "$currentMostRecentDate" '>' "$mostRecentDate" ]; then
             mostRecentDate="$currentMostRecentDate"
             FILE=$(echo $line | awk '{print $1}')
           fi
@@ -128,29 +232,26 @@ function directoryPrint ()
   fi
 }
 
-function directoryPrintMode ()
+directoryPrintMode ()
 {
-  echo "I'm in directoryPrintMode function"
   maxCount=0
   while read line
     do
 
-      local filePath=$(echo $line | awk '{print $1}')
-      local datestr=$(echo $line | awk '{print $2}')
-      local currentCount=$(echo $line | awk '{print $3}')
+      filePath=$(echo $line | awk '{print $1}')
+      datestr=$(echo $line | awk '{print $2}')
+      currentCount=$(echo $line | awk '{print $3}')
 
-      local currentMostRecentDate=$(echo $datestr | awk -F',' '{print $1}')
-      local currentLatestDate=$(echo $datestr | awk -F',' '{print $NF}')
+      currentMostRecentDate=$(echo $datestr | awk -F',' '{print $NF}')
+      currentLatestDate=$(echo $datestr | awk -F',' '{print $1}')
 
-      if [[ $(find "$DIRECTORY" -maxdepth 1 -type f -name "$(basename "$filePath")") && "$filePath" != "$DIRECTORY"/*/* ]]; then
-        if [[ "$currentMostRecentDate" > "$after" && "$currentLatestDate" < "$before" ]]; then
-          echo "$maxCount vs $currentCount"
-          if [[ "$maxCount" < "$currentCount" ]]; then
+      if [ -e "$DIRECTORY/$(basename "$filePath")" -a "$filePath" != "$DIRECTORY"/*/* ]; then
+        if [ "$currentMostRecentDate" '>' "$after" -a "$currentLatestDate" '<' "$before" ]; then
+          if [ "$maxCount" '<' "$currentCount" ]; then
             maxCount=$currentCount
-            echo "after change: max count = $maxCount current count = $currentCount"
             FILE=$(echo $line | awk '{print $1}')
           fi
-        fi 
+        fi
       fi
   done < "$MOLE_RC"
 
@@ -163,7 +264,7 @@ function directoryPrintMode ()
   fi
 }
 
-if [[ -z "$MOLE_RC" ]]; then
+if [ -z "$MOLE_RC" ]; then
   echo "Configuration error, MOLE_RC is null"
   exit 1
 fi
@@ -179,13 +280,16 @@ fi
 
 
 usage() {
-  echo "Usage: $0 [-h] [-g GROUP] [-m] [-b DATE] [-a DATE] [FILTERS] [DIRECTORY]" 1>&2
+  echo "mole [-g GROUP] FILE" 1>&2
+  echo "mole [-m] [FILTERS] [DIRECTORY]" 1>&2
+  echo "mole list [FILTERS] [DIRECTORY]" 1>&2
+  exit 1;
 }
 
-if [[ $1 == "list" ]]; then
+if [ $1 = "list" ]; then
   LIST=true
   shift 1
-elif [[ $1 == "secret-log" ]]; then
+elif [ $1 = "secret-log" ]; then
   SECRETLOG=true
   shift 1
 fi
@@ -205,55 +309,58 @@ while getopts ":g:b:a:mh" opt; do
 done
 shift $((OPTIND -1))
 
-if [[ -z $group ]]; then 
+if [ -z $group ]; then 
   group="-"
 fi
 
-if [[ -z $before ]]; then
+time_fix="23:59:59"
+if [ -z $before ]; then
   before="$DEAFAULT_BEFORE_DATE"
+else 
+  before="$before"_"$time_fix"
 fi
 
-if [[ -z $after ]]; then 
+if [ -z $after ]; then 
   after="$DEAFAULT_AFTER_DATE"
+else 
+  after="$after"_"$time_fix"
 fi
 
-# Set DIRECTORY and FILE value 
-if [[ $# -gt 0 ]]; then
-  if [ -d "$1" ]; then
-    DIRECTORY="$1"
-  elif [ -f "$1" ]; then
-    FILE="$1"
-    if [ -d "$2" ] && [ -n "$2" ]; then 
-      DIRECTORY="$2"
-    elif [ "$2" == "" ]; then 
-      DIRECTORY="$PWD"
+
+# Set DIRECTORY and FILE value
+if [ ! $SECRETLOG ]; then 
+  if [ $# -gt 0 ]; then
+    if [ -d "$1" -a $# -lt 2 ]; then
+      DIRECTORY="$1"
+    elif [ -f "$1" ]; then
+      FILE="$1"
+      if [ -d "$2" -a  -n "$2" ]; then 
+        DIRECTORY="$2"
+      elif [ "$2" = "" ]; then 
+        DIRECTORY="$PWD"
+      else 
+        echo "Invalid argument or file is not in this directory: 1 $2 1" 1>&2
+        exit 1
+      fi
     else 
-      echo "Invalid argument or file is not in this directory: 1 $2 1" 1>&2
+      echo "Invalid argument or file is not in this directory: $1" 1>&2
+      exit 1
     fi
-  else 
-    echo "Invalid argument or file is not in this directory: $1" 1>&2
   fi
 fi
 
-
-# Check if work with DIRECTORY or with FILE 
-if [[ -e  "$FILE" ]]; then 
+# Check if work with DIRECTORY or with FILE
+if [ $SECRETLOG ]; then 
+  secretLog $@
+elif [ -e  "$FILE" ]; then 
   openFile
   searchAndModifyConfig
-elif [[ "$LIST" == true ]]; then 
+elif [ "$LIST" = true ]; then 
   listPrint
 else
-  if [[ $mode == true ]]; then 
+  if [ "$mode" = true ]; then 
     directoryPrintMode
   else
     directoryPrint
   fi
 fi
-
-
-# echo "FILE: $FILE"
-# echo "Directory: $DIRECTORY"
-# echo "a- $after"
-# echo "b- $before"
-# echo "Secret log: $SECRETLOG"
-# echo "LIST: $LIST"
